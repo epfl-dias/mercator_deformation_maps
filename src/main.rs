@@ -10,17 +10,12 @@ extern crate serde_derive;
 mod transforms;
 
 use std::error::Error;
-use structopt::StructOpt;
 
-use crate::transforms::gis::{Point3dd, Point3df};
+use transforms::gis::GISTransform;
+use transforms::gis::Point3dd;
+use transforms::gis::Point3df;
 
-#[derive(StructOpt, Debug)]
-#[structopt(rename_all = "kebab-case")]
-struct Opt {
-    /// position to transform
-    #[structopt(long, short)]
-    position: Vec<f64>,
-}
+const PRECISION: f64 = 1E6;
 
 #[derive(Serialize, Debug)]
 struct ReqParam {
@@ -34,30 +29,22 @@ struct PointsResponse {
     target_points: Vec<Vec<f64>>,
 }
 
-const PRECISION: f64 = 1E6;
-
-fn main() -> Result<(), Box<dyn Error>> {
-    pretty_env_logger::init();
-
-    let opt = Opt::from_args();
-
-    // 39d2e4cf-8979-9fb2-bc29-2a4ead14ae40 -> 23df7ce8-e405-bc31-3863-d543e3cc89e5
-    //  => full_cls_400um_border_default_acquisition_disco_analysis_displ_field_DISCO_DARTEL_20181004_reg_x4.ima
-    let basename = "full_cls_400um_border_default_acquisition_disco_analysis_displ_field_DISCO_DARTEL_20181004_reg_x4";
-    let filename = format!("data/{}", basename);
-    let gis = transforms::gis::load_file(&filename)?;
-
+fn compare_block(
+    gis: &GISTransform,
+    source_space: String,
+    target_space: String,
+    x: (i32, i32),
+    y: (i32, i32),
+    z: (i32, i32),
+) -> Result<(), Box<dyn Error>> {
     // First retrieve reference implementation results:
     let client = reqwest::Client::new();
 
-    // x y z
-    //448 x 486 x 403
-
     let mut points = vec![];
     let mut my_results = vec![];
-    for z in 0..10 {
-        for y in 0..10 {
-            for x in 0..10 {
+    for z in z.0..z.1 {
+        for y in y.0..y.1 {
+            for x in x.0..x.1 {
                 points.push(vec![x as f64, y as f64, z as f64]);
                 my_results.push(gis.deformation(&(&vec![x as f64, y as f64, z as f64]).into()));
             }
@@ -65,8 +52,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     let param = ReqParam {
-        source_space: "39d2e4cf-8979-9fb2-bc29-2a4ead14ae40".to_string(),
-        target_space: "23df7ce8-e405-bc31-3863-d543e3cc89e5".to_string(),
+        source_space,
+        target_space,
         source_points: points.clone(),
     };
 
@@ -84,38 +71,33 @@ fn main() -> Result<(), Box<dyn Error>> {
             || (r[1] - p[1]).abs() > PRECISION
             || (r[2] - p[2]).abs() > PRECISION
         {
-            println!("Mismatch r {:?} p {:?} ", r, p);
+            print!("\nMismatch r {:?} p {:?} ", r, p);
+        } else {
+            print!(".")
         }
     }
 
-    /*
-        // 39d2e4cf-8979-9fb2-bc29-2a4ead14ae40 -> 23df7ce8-e405-bc31-3863-d543e3cc89e5
-        //  => full_cls_400um_border_default_acquisition_disco_analysis_displ_field_DISCO_DARTEL_20181004_reg_x4.ima
-        let basename = "full_cls_400um_border_default_acquisition_disco_analysis_displ_field_DISCO_DARTEL_20181004_reg_x4";
-        let filename = format!("data/{}", basename);
-        let gis = transforms::gis::load_file(&filename)?;
+    Ok(())
+}
 
-        for z in 0..100 {
-            for y in 0..100 {
-                for x in 0..100 {
-                    let r = reference_value(&res, x, y, z);
-                    let p = gis.deformation((&vec![x, y, z]).into());
+fn main() -> Result<(), Box<dyn Error>> {
+    pretty_env_logger::init();
 
-                    if (r[0] - p[0]) != 0.0 || (r[1] - p[1]) != 0.0 || (r[2] - p[2]) != 0.0 {
-                        println!("Mismatch [{}, {}, {}] : r {:?} p {:?} ", x, y, z, r, p);
-                    }
-                }
-            }
-        }
+    // x y z
+    //448 x 486 x 403
 
-        //let point = Point3dd([f64::from(100) * 1.0; 3]);
-        let point = (&opt.position).into();
-        //let Point3dd([a, b, c]) = point;
+    // 39d2e4cf-8979-9fb2-bc29-2a4ead14ae40 -> 23df7ce8-e405-bc31-3863-d543e3cc89e5
+    //  => full_cls_400um_border_default_acquisition_disco_analysis_displ_field_DISCO_DARTEL_20181004_reg_x4.ima
+    let source_space = "39d2e4cf-8979-9fb2-bc29-2a4ead14ae40".to_string();
+    let target_space = "23df7ce8-e405-bc31-3863-d543e3cc89e5".to_string();
+    let basename = "full_cls_400um_border_default_acquisition_disco_analysis_displ_field_DISCO_DARTEL_20181004_reg_x4";
 
-        let tx = gis.deformation(&point);
-        let Point3dd([d, e, f]) = tx;
+    let filename = format!("data/{}", basename);
+    let gis = transforms::gis::load_file(&filename)?;
 
-        println!("{:>3.16?},\t{:>3.16?},\t{:>3.16?}", d, e, f);
-    */
+    compare_block(&gis, source_space, target_space, (0, 10), (0, 10), (0, 10))?;
+
+    println!("\nComparison finished.");
+
     Ok(())
 }
