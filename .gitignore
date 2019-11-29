@@ -1,0 +1,6 @@
+/data
+/target
+**/*.rs.bk
+.*
+!.gitignore
+
