@@ -7,13 +7,14 @@ extern crate measure_time;
 #[macro_use]
 extern crate serde_derive;
 
+mod nice_float;
 mod transforms;
 
 use std::error::Error;
 
+use nice_float::NiceFloat;
 use transforms::gis::GISTransform;
 use transforms::gis::Point3dd;
-use transforms::gis::Point3df;
 
 const PRECISION: f64 = 1E6;
 
@@ -26,9 +27,10 @@ struct ReqParam {
 
 #[derive(Deserialize, Debug)]
 struct PointsResponse {
-    target_points: Vec<Vec<f64>>,
+    target_points: Vec<Vec<NiceFloat>>,
 }
 
+#[allow(clippy::many_single_char_names)]
 fn compare_block(
     gis: &GISTransform,
     source_space: String,
@@ -36,17 +38,19 @@ fn compare_block(
     x: (i32, i32),
     y: (i32, i32),
     z: (i32, i32),
+    step: f64,
 ) -> Result<(), Box<dyn Error>> {
     // First retrieve reference implementation results:
     let client = reqwest::Client::new();
 
-    let mut points = vec![];
+    let mut source_points = vec![];
     let mut my_results = vec![];
     for z in z.0..z.1 {
         for y in y.0..y.1 {
             for x in x.0..x.1 {
-                points.push(vec![x as f64, y as f64, z as f64]);
-                my_results.push(gis.deformation(&(&vec![x as f64, y as f64, z as f64]).into()));
+                let p = vec![x as f64 * step, y as f64 * step, z as f64 * step];
+                my_results.push(gis.deformation(&(&p).into()));
+                source_points.push(p);
             }
         }
     }
@@ -54,18 +58,38 @@ fn compare_block(
     let param = ReqParam {
         source_space,
         target_space,
-        source_points: points.clone(),
+        source_points,
     };
 
     let mut res = client
         .post("https://hbp-spatial-backend.apps-dev.hbp.eu/v1/transform-points")
         .json(&param)
         .send()?;
-    let reference: PointsResponse = res.json()?;
+    let unparsed = res.text()?;
 
-    for i in 0..reference.target_points.len() {
-        let r = &reference.target_points[i];
-        let p = &my_results[i];
+    // NaN without quoting as part of flaoting point is not a valid number in the JSON standard.
+    // We transform it to a valid string, and redefine a floating point ('NiceFloat') type which
+    // process it.
+    let normalized = unparsed.replace("NaN", r#""NaN""#);
+
+    let reference: PointsResponse = match serde_json::from_str(&normalized) {
+        Ok(v) => v,
+        Err(e) => {
+            println!("\n request: {:?}, error {:?}", normalized, e);
+            return Err(Box::new(e));
+        }
+    };
+
+    for (i, p) in my_results
+        .iter()
+        .enumerate()
+        .take(reference.target_points.len())
+    {
+        let r: Point3dd = (&reference.target_points[i]
+            .iter()
+            .map(|nf| nf.into())
+            .collect::<Vec<f64>>())
+            .into();
 
         if (r[0] - p[0]).abs() > PRECISION
             || (r[1] - p[1]).abs() > PRECISION

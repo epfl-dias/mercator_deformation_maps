@@ -10,6 +10,7 @@ use byteorder::LittleEndian;
 use memmap::Mmap;
 
 use super::K;
+
 use std::ops::{AddAssign, Index};
 
 struct GISArrayData(Vec<f32>);
@@ -154,13 +155,13 @@ impl GISTransform {
 //type Point3df = (f32, f32, f32);
 //type Point3di = (i32, i32, i32);
 //type Point3du = (usize, usize, usize);
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Point3dd(pub [f64; K]);
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Point3df(pub [f32; K]);
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct Point3di(pub [i32; K]);
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct Point3du(pub [usize; K]);
 
 macro_rules! point {
@@ -216,6 +217,12 @@ impl From<&Vec<usize>> for Point3dd {
 impl From<&Vec<f64>> for Point3dd {
     fn from(v: &Vec<f64>) -> Self {
         Self([v[0], v[1], v[2]])
+    }
+}
+
+impl From<Vec<f64>> for Point3dd {
+    fn from(v: Vec<f64>) -> Self {
+        Point3dd::from(&v)
     }
 }
 
@@ -306,7 +313,7 @@ impl GISTransform {
     }
 
     pub fn deformation(&self, p: &Point3dd) -> Point3dd {
-        let mut t = Point3dd([f64::from(p[0]), f64::from(p[1]), f64::from(p[2])]);
+        let mut t = p.clone();
 
         t += self.deformation_private(&t);
 
