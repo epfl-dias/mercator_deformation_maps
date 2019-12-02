@@ -42,6 +42,10 @@ impl GISArrayData {
         Ok(Self(data))
     }
 
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
     fn point3dd(&self, index: usize) -> Point3dd {
         let GISArrayData(data) = self;
 
@@ -131,6 +135,10 @@ impl GISTransform {
 
     pub fn len(&self) -> usize {
         self.dimensions.iter().product()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
     }
 
     pub fn dimensions(&self) -> &Vec<usize> {
