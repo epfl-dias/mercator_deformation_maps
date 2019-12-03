@@ -1,5 +1,6 @@
 pub mod affine;
 pub mod gis;
+pub mod point;
 
 const K: usize = 3;
 

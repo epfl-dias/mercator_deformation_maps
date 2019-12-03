@@ -13,6 +13,7 @@ use byteorder::ByteOrder;
 use byteorder::LittleEndian;
 use memmap::Mmap;
 
+use super::point::*;
 use super::K;
 
 struct GISArrayData(Vec<f32>);
@@ -55,6 +56,16 @@ impl GISArrayData {
             data[index * 3] as f64,
             data[index * 3 + 1] as f64,
             data[index * 3 + 2] as f64,
+        ])
+    }
+
+    fn point3df(&self, index: usize) -> Point3df {
+        let GISArrayData(data) = self;
+
+        Point3df([
+            data[index * 3] as f32,
+            data[index * 3 + 1] as f32,
+            data[index * 3 + 2] as f32,
         ])
     }
 }
@@ -154,7 +165,7 @@ impl GISTransform {
         Point3dd([d[0] as f64 * s[0], d[1] as f64 * s[1], d[2] as f64 * s[2]])
     }
 
-    pub fn point3dd(&self, position: Vec<usize>) -> Point3dd {
+    fn index(&self, position: Vec<usize>) -> usize {
         let mut index = 0;
         let mut stride = 1;
 
@@ -163,104 +174,15 @@ impl GISTransform {
             stride *= self.dimensions[i];
         }
 
-        self.data.point3dd(index)
+        index
     }
-}
 
-// 2016: l now means long (64bit), i int (32bit), s short (16bit)
-#[derive(Clone, Debug)]
-pub struct Point3dd(pub [f64; K]);
-#[derive(Clone, Debug)]
-pub struct Point3df(pub [f32; K]);
-#[derive(Clone, Debug)]
-struct Point3di(pub [i32; K]);
-#[derive(Clone, Debug)]
-struct Point3du(pub [usize; K]);
-
-macro_rules! point {
-    ($point:ident, $output:ident) => {
-        impl $point {
-            pub fn scale(&mut self, factor: $output) -> &mut Self {
-                for k in &mut self.0 {
-                    *k *= factor
-                }
-
-                self
-            }
-
-            pub fn is_nan(&self) -> bool {
-                let mut bool = false;
-                for k in 0..K {
-                    bool = bool || self.0[k].is_nan();
-                }
-
-                bool
-            }
-        }
-    };
-}
-
-macro_rules! indexed {
-    ($point:ident, $output:ident) => {
-        impl Index<usize> for $point {
-            type Output = $output;
-
-            fn index(&self, index: usize) -> &Self::Output {
-                &self.0[index]
-            }
-        }
-    };
-}
-
-point!(Point3dd, f64);
-
-indexed!(Point3dd, f64);
-indexed!(Point3df, f32);
-indexed!(Point3di, i32);
-
-impl AddAssign for Point3dd {
-    fn add_assign(&mut self, rhs: Self) {
-        for k in 0..K {
-            self.0[k] += rhs.0[k];
-        }
+    pub fn point3dd(&self, position: Vec<usize>) -> Point3dd {
+        self.data.point3dd(self.index(position))
     }
-}
 
-impl From<&Vec<usize>> for Point3dd {
-    fn from(v: &Vec<usize>) -> Self {
-        Self([
-            f64::from(v[0] as i32),
-            f64::from(v[1] as i32),
-            f64::from(v[2] as i32),
-        ])
-    }
-}
-
-impl From<&Vec<f64>> for Point3dd {
-    fn from(v: &Vec<f64>) -> Self {
-        Self([v[0], v[1], v[2]])
-    }
-}
-
-impl From<Vec<f64>> for Point3dd {
-    fn from(v: Vec<f64>) -> Self {
-        Point3dd::from(&v)
-    }
-}
-
-impl From<&Vec<usize>> for Point3di {
-    fn from(v: &Vec<usize>) -> Self {
-        Self([v[0] as i32, v[1] as i32, v[2] as i32])
-    }
-}
-
-impl From<&Point3dd> for Point3di {
-    fn from(p: &Point3dd) -> Self {
-        Point3di([
-            p[0].floor() as i32,
-            p[1].floor() as i32,
-            p[2].floor() as i32,
-        ])
+    pub fn point3df(&self, position: Vec<usize>) -> Point3df {
+        self.data.point3df(self.index(position))
     }
 }
 

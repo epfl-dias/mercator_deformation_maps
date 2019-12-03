@@ -20,8 +20,8 @@ mod tests {
     use std::error::Error;
 
     use gis::GISTransform;
-    use gis::Point3dd;
     use nice_float::NiceFloat;
+    use transforms::point::Point3dd;
 
     const PRECISION: f64 = 1E6;
 
