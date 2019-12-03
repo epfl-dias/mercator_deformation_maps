@@ -8,7 +8,6 @@ use serde::Serialize;
 use serde::Serializer;
 
 type Float = f64;
-
 const NAN: Float = std::f64::NAN;
 
 #[derive(Debug)]

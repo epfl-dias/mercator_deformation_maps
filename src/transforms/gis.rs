@@ -1,8 +1,12 @@
 use std::error::Error;
+use std::fmt;
 use std::fmt::Debug;
 use std::fs::File;
-use std::io::{BufReader, Read};
-use std::{fmt, mem};
+use std::io::BufReader;
+use std::io::Read;
+use std::mem;
+use std::ops::AddAssign;
+use std::ops::Index;
 
 //use byteorder::BigEndian;
 use byteorder::ByteOrder;
@@ -10,8 +14,6 @@ use byteorder::LittleEndian;
 use memmap::Mmap;
 
 use super::K;
-
-use std::ops::{AddAssign, Index};
 
 struct GISArrayData(Vec<f32>);
 
@@ -145,6 +147,13 @@ impl GISTransform {
         &self.dimensions
     }
 
+    pub fn dimensions_mm(&self) -> Point3dd {
+        let d = &self.dimensions;
+        let s = &self.spacing;
+
+        Point3dd([d[0] as f64 * s[0], d[1] as f64 * s[1], d[2] as f64 * s[2]])
+    }
+
     pub fn point3dd(&self, position: Vec<usize>) -> Point3dd {
         let mut index = 0;
         let mut stride = 1;
@@ -159,10 +168,6 @@ impl GISTransform {
 }
 
 // 2016: l now means long (64bit), i int (32bit), s short (16bit)
-//type Point3dd = (f64, f64, f64);
-//type Point3df = (f32, f32, f32);
-//type Point3di = (i32, i32, i32);
-//type Point3du = (usize, usize, usize);
 #[derive(Clone, Debug)]
 pub struct Point3dd(pub [f64; K]);
 #[derive(Clone, Debug)]
@@ -181,6 +186,15 @@ macro_rules! point {
                 }
 
                 self
+            }
+
+            pub fn is_nan(&self) -> bool {
+                let mut bool = false;
+                for k in 0..K {
+                    bool = bool || self.0[k].is_nan();
+                }
+
+                bool
             }
         }
     };
@@ -262,12 +276,10 @@ impl GISTransform {
     }
 
     fn ctrl_point_delta(&self, i: i32, j: i32, k: i32) -> Point3dd {
-        let d = self.point3dd(vec![i as usize, j as usize, k as usize]);
-        trace!("ctrl_point_delta {:?}", d);
-        d
+        self.point3dd(vec![i as usize, j as usize, k as usize])
     }
 
-    // Input position in [mm] to deplacement in [mm]
+    // Input position in [mm] to displacement in [mm]
     fn deformation_private(&self, p_image: &Point3dd) -> Point3dd {
         let p_spline = self.mm_to_spline_voxel(p_image);
 
@@ -284,6 +296,8 @@ impl GISTransform {
             && p_spline[2] >= 0.0
             && p_spline[2] < dim_d[2])
         {
+            //warn!("Returning NaN as we are outside of the deformation field!");
+            warn!("p_spline {:?}, dim_d {:?}", p_spline, dim_d);
             return Point3dd([std::f64::NAN; K]);
         }
 
@@ -307,15 +321,26 @@ impl GISTransform {
             for j in k_spline[1]..=k_up[1] {
                 for i in k_spline[0]..=k_up[0] {
                     let mut p = self.ctrl_point_delta(i, j, k);
+                    /*if p.is_nan() {
+                        trace!("ctrl_point_delta: [{}, {}, {}] p {:?}", i, j, k, p);
+                    }*/
                     p.scale(bt[0][(i - k_spline[0]) as usize])
                         .scale(bt[1][(j - k_spline[1]) as usize])
                         .scale(bt[2][(k - k_spline[2]) as usize]);
+                    /*
+                    if p.is_nan() {
+                        trace!("scaling failed: [{}, {}, {}] p {:?}", i, j, k, p);
+                    }*/
 
                     deformation += p;
                 }
             }
         }
-        trace!("deformation {:?}", deformation);
+        if deformation.is_nan() {
+            warn!("deformation {:?} -> {:?}", p_image, deformation);
+        } /*else {
+              trace!("deformation {:?} -> {:?}", p_image, deformation);
+          }*/
 
         deformation
     }

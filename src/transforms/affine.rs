@@ -2,7 +2,8 @@ use std::error::Error;
 use std::fmt;
 use std::fmt::Debug;
 use std::fs::File;
-use std::io::{BufReader, Read};
+use std::io::BufReader;
+use std::io::Read;
 
 use super::K;
 

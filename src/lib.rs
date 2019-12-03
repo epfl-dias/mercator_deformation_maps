@@ -37,6 +37,34 @@ mod tests {
         target_points: Vec<Vec<NiceFloat>>,
     }
 
+    fn init() {
+        match pretty_env_logger::try_init() {
+            _ => (), // Just ignore whatever is going on...
+        }
+    }
+
+    fn load_gis() -> Result<(String, String, GISTransform), Box<dyn Error>> {
+        // x y z
+        //448 x 486 x 403
+
+        // 39d2e4cf-8979-9fb2-bc29-2a4ead14ae40 -> 23df7ce8-e405-bc31-3863-d543e3cc89e5
+        //  => full_cls_400um_border_default_acquisition_disco_analysis_displ_field_DISCO_DARTEL_20181004_reg_x4.ima
+        let source_space = "39d2e4cf-8979-9fb2-bc29-2a4ead14ae40".to_string();
+        let target_space = "23df7ce8-e405-bc31-3863-d543e3cc89e5".to_string();
+        let basename = "full_cls_400um_border_default_acquisition_disco_analysis_displ_field_DISCO_DARTEL_20181004_reg_x4";
+
+        let filename = format!("data/{}", basename);
+
+        let gis = transforms::gis::load_file(&filename)?;
+
+        info!(
+            "dimensions: {:?}, {:?} [mm]",
+            gis.dimensions(),
+            gis.dimensions_mm()
+        );
+        Ok((source_space, target_space, gis))
+    }
+
     #[allow(clippy::many_single_char_names)]
     fn compare_block(
         gis: &GISTransform,
@@ -47,6 +75,19 @@ mod tests {
         z: (i32, i32),
         step: f64,
     ) -> Result<bool, Box<dyn Error>> {
+        fn values(start: i32, end: i32, delta: f64) -> Vec<f64> {
+            let steps = ((end - start) as f64 / delta) as i32;
+            let mut values = vec![];
+            let mut v = start as f64;
+
+            for _ in 0..steps {
+                values.push(v);
+                v += delta;
+            }
+            trace!("values {:?}", values);
+            values
+        }
+
         let mut mismatches = vec![];
 
         // First retrieve reference implementation results:
@@ -54,10 +95,10 @@ mod tests {
 
         let mut source_points = vec![];
         let mut my_results = vec![];
-        for z in z.0..z.1 {
-            for y in y.0..y.1 {
-                for x in x.0..x.1 {
-                    let p = vec![x as f64 * step, y as f64 * step, z as f64 * step];
+        for z in values(z.0, z.1, step) {
+            for y in values(y.0, y.1, step) {
+                for x in values(x.0, x.1, step) {
+                    let p = vec![x, y, z];
                     my_results.push(gis.deformation(&(&p).into()));
                     source_points.push(p);
                 }
@@ -84,7 +125,7 @@ mod tests {
         let reference: PointsResponse = match serde_json::from_str(&normalized) {
             Ok(v) => v,
             Err(e) => {
-                println!("\n request: {:?}, error {:?}", normalized, e);
+                warn!("request: {:?}, error {:?}", normalized, e);
                 return Err(Box::new(e));
             }
         };
@@ -104,63 +145,96 @@ mod tests {
                 || (r[1] - p[1]).abs() > PRECISION
                 || (r[2] - p[2]).abs() > PRECISION
             {
-                print!("\nMismatch r {:?} p {:?} ", r, p);
+                warn!("Mismatch r {:?} p {:?} ", r, p);
                 mismatches.push((r, p));
             } else {
-                print!(".")
+                if p.is_nan() || r.is_nan() {
+                    warn!("Match   r {:?} p {:?} ", r, p);
+                } else {
+                    trace!(".")
+                }
             }
         }
 
         Ok(mismatches.len() == 0)
     }
 
-    fn load_gis() -> Result<(String, String, GISTransform), Box<dyn Error>> {
-        // x y z
-        //448 x 486 x 403
+    #[test]
+    fn check_diagonal() -> Result<(), Box<dyn Error>> {
+        init();
 
-        // 39d2e4cf-8979-9fb2-bc29-2a4ead14ae40 -> 23df7ce8-e405-bc31-3863-d543e3cc89e5
-        //  => full_cls_400um_border_default_acquisition_disco_analysis_displ_field_DISCO_DARTEL_20181004_reg_x4.ima
-        let source_space = "39d2e4cf-8979-9fb2-bc29-2a4ead14ae40".to_string();
-        let target_space = "23df7ce8-e405-bc31-3863-d543e3cc89e5".to_string();
-        let basename = "full_cls_400um_border_default_acquisition_disco_analysis_displ_field_DISCO_DARTEL_20181004_reg_x4";
+        let mut success = true;
+        let (source_space, target_space, gis) = load_gis()?;
+        let mut prev = 0;
 
-        let filename = format!("data/{}", basename);
+        // The diagonal cannot go further than the smallest dimension.
+        let max = gis.dimensions_mm()[0]
+            .min(gis.dimensions_mm()[1])
+            .min(gis.dimensions_mm()[2]) as i32;
 
-        Ok((
-            source_space,
-            target_space,
-            transforms::gis::load_file(&filename)?,
-        ))
+        for d in (0..max).step_by(10) {
+            info!(
+                "Block [{}, {}, {}] - [{}, {}, {}]",
+                prev, prev, prev, d, d, d,
+            );
+
+            success = compare_block(
+                &gis,
+                source_space.clone(),
+                target_space.clone(),
+                (prev, d),
+                (prev, d),
+                (prev, d),
+                1.0,
+            )? && success;
+
+            prev = d;
+        }
+
+        info!("Comparison finished.");
+        assert!(success);
+
+        Ok(())
     }
 
     #[test]
-    fn check_diagonal() -> Result<(), Box<dyn Error>> {
-        //pretty_env_logger::init();
+    fn check_interpolation_diagonal() -> Result<(), Box<dyn Error>> {
+        init();
+
         let mut success = true;
         let (source_space, target_space, gis) = load_gis()?;
-        let mut z_prev = 0;
+        let mut prev = 0;
 
-        for z in (z_prev..403).step_by(10) {
-            println!(
-                "\nBlock [{}, {}, {}] - [{}, {}, {}]",
-                z_prev, z_prev, z_prev, z, z, z,
+        // The diagonal cannot go further than the smallest dimension.
+        let max = gis.dimensions_mm()[0]
+            .min(gis.dimensions_mm()[1])
+            .min(gis.dimensions_mm()[2]) as i32;
+
+        for d in (0..max).step_by(10) {
+            info!(
+                "Block [{}, {}, {}] - [{}, {}, {}]",
+                prev,
+                prev,
+                prev,
+                prev + 1,
+                prev + 1,
+                prev + 1,
             );
 
-            success = success
-                || compare_block(
-                    &gis,
-                    source_space.clone(),
-                    target_space.clone(),
-                    (z_prev, z),
-                    (z_prev, z),
-                    (z_prev, z),
-                    1.0,
-                )?;
+            success = compare_block(
+                &gis,
+                source_space.clone(),
+                target_space.clone(),
+                (prev, prev + 1),
+                (prev, prev + 1),
+                (prev, prev + 1),
+                0.1,
+            )? && success;
 
-            z_prev = z;
+            prev = d;
         }
 
-        println!("\nComparison finished.");
+        info!("\nComparison finished.");
         assert!(success);
 
         Ok(())
@@ -169,29 +243,32 @@ mod tests {
     #[test]
     #[ignore]
     fn check_whole_space() -> Result<(), Box<dyn Error>> {
-        //pretty_env_logger::init();
+        init();
+
         let mut success = true;
         let (source_space, target_space, gis) = load_gis()?;
         let (mut z_prev, mut y_prev, mut x_prev) = (0, 0, 0);
+        let z_max = gis.dimensions_mm()[2] as i32;
+        let y_max = gis.dimensions_mm()[1] as i32;
+        let x_max = gis.dimensions_mm()[0] as i32;
 
-        for z in (z_prev..403).step_by(10) {
-            for y in (y_prev..486).step_by(10) {
-                for x in (x_prev..448).step_by(10) {
-                    println!(
-                        "\nBlock [{}, {}, {}] - [{}, {}, {}]",
+        for z in (0..z_max).step_by(10) {
+            for y in (0..y_max).step_by(10) {
+                for x in (0..x_max).step_by(10) {
+                    info!(
+                        "Block [{}, {}, {}] - [{}, {}, {}]",
                         x_prev, y_prev, z_prev, x, y, z
                     );
 
-                    success = success
-                        || compare_block(
-                            &gis,
-                            source_space.clone(),
-                            target_space.clone(),
-                            (x_prev, x),
-                            (y_prev, y),
-                            (z_prev, z),
-                            1.0,
-                        )?;
+                    success = compare_block(
+                        &gis,
+                        source_space.clone(),
+                        target_space.clone(),
+                        (x_prev, x),
+                        (y_prev, y),
+                        (z_prev, z),
+                        1.0,
+                    )? && success;
 
                     x_prev = x;
                 }
@@ -200,7 +277,7 @@ mod tests {
             z_prev = z;
         }
 
-        println!("\nComparison finished.");
+        info!("Comparison finished.");
         assert!(success);
 
         Ok(())
@@ -208,13 +285,15 @@ mod tests {
 
     #[test]
     fn check_nan() -> Result<(), Box<dyn Error>> {
+        init();
+
         let (source_space, target_space, gis) = load_gis()?;
 
         let (z_prev, y_prev, x_prev) = (20, 20, 20);
         let (z, y, x) = (21, 21, 21);
 
-        println!(
-            "\nPosition [{}, {}, {}] - [{}, {}, {}]",
+        info!(
+            "Block [{}, {}, {}] - [{}, {}, {}]",
             x_prev, y_prev, z_prev, x, y, z
         );
 
@@ -227,6 +306,7 @@ mod tests {
             (z_prev, z),
             1.0,
         )?;
+
         assert!(success);
 
         Ok(())
