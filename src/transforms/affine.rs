@@ -1,3 +1,4 @@
+use arrayref::array_ref;
 use std::error::Error;
 use std::fmt;
 use std::fmt::Debug;
@@ -5,6 +6,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::io::Read;
 
+// We tie this to GIS' restrictions for now.
 use super::K;
 
 pub struct AffineTransform {
@@ -16,8 +18,8 @@ impl Debug for AffineTransform {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "AffineTransform {{ dimensions: {}, offsets: {:?}, matrix: ",
-            K, self.offsets
+            "AffineTransform {{ dimensions: {}x{}, offsets: {:?}, matrix: ",
+            K, K, self.offsets
         )?;
         write!(f, "{:?} }}", self.matrix)
     }
@@ -48,13 +50,13 @@ impl AffineTransform {
                     .map(|value| value.parse::<f64>().unwrap())
                     .collect::<Vec<_>>();
 
-                *array_ref!(v, 0, 3)
+                *array_ref!(v, 0, K)
             })
             .collect::<Vec<_>>();
 
         Ok(Self {
-            offsets: *array_ref!(offsets, 0, 3),
-            matrix: *array_ref!(matrix, 0, 3),
+            offsets: *array_ref!(offsets, 0, K),
+            matrix: *array_ref!(matrix, 0, K),
         })
     }
 }
