@@ -5,18 +5,15 @@ use std::fs::File;
 use std::io::BufReader;
 use std::io::Read;
 use std::mem;
-use std::ops::AddAssign;
 use std::ops::Index;
 
-//use byteorder::BigEndian;
-use byteorder::ByteOrder;
-use byteorder::LittleEndian;
+use log::warn;
 use memmap::Mmap;
 
 use super::point::*;
 use super::K;
 
-struct GISArrayData(Vec<f32>);
+struct GISArrayData(*const f32, Mmap, usize);
 
 impl GISArrayData {
     fn load_file(basename: &str) -> Result<Self, Box<dyn Error>> {
@@ -36,38 +33,41 @@ impl GISArrayData {
         );
 
         // Load the data to memory
-        let mut data = vec![0f32; count];
-
         let mmap = unsafe {
             Mmap::map(&file)
                 .unwrap_or_else(|e| panic!("Unable to map in memory the file: {}: {}", filename, e))
         };
-        LittleEndian::read_f32_into(mmap.as_ref(), &mut data);
-        Ok(Self(data))
-    }
 
-    fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        // This is OK as Mmap only happens on 4k-page boundaries.
+        #[allow(clippy::cast_ptr_alignment)]
+        let data = mmap.as_ptr() as *const _;
+
+        Ok(Self(data, mmap, count))
     }
 
     fn point3dd(&self, index: usize) -> Point3dd {
-        let GISArrayData(data) = self;
-
         Point3dd([
-            data[index * 3] as f64,
-            data[index * 3 + 1] as f64,
-            data[index * 3 + 2] as f64,
+            self[index * 3] as f64,
+            self[index * 3 + 1] as f64,
+            self[index * 3 + 2] as f64,
         ])
     }
 
     fn point3df(&self, index: usize) -> Point3df {
-        let GISArrayData(data) = self;
-
         Point3df([
-            data[index * 3] as f32,
-            data[index * 3 + 1] as f32,
-            data[index * 3 + 2] as f32,
+            self[index * 3] as f32,
+            self[index * 3 + 1] as f32,
+            self[index * 3 + 2] as f32,
         ])
+    }
+}
+
+impl Index<usize> for GISArrayData {
+    type Output = f32;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        assert!(index < self.2); // check we are not going out of index
+        unsafe { &*self.0.add(index) }
     }
 }
 
@@ -145,14 +145,6 @@ impl GISTransform {
             flat: vec![false, false, false],
             data,
         })
-    }
-
-    pub fn len(&self) -> usize {
-        self.dimensions.iter().product()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.data.is_empty()
     }
 
     pub fn dimensions(&self) -> &Vec<usize> {
