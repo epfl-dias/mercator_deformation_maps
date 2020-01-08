@@ -1,8 +1,10 @@
+#[macro_use]
+mod point;
+
 pub mod affine;
 pub mod gis;
-pub mod point;
 
-const K: usize = 3;
+use gis::K;
 
 /*
 enum Transform<'t> {

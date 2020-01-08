@@ -5,13 +5,49 @@ use std::fs::File;
 use std::io::BufReader;
 use std::io::Read;
 use std::mem;
+use std::ops::AddAssign;
 use std::ops::Index;
 
+use arrayref::array_ref;
 use log::warn;
 use memmap::Mmap;
 
-use super::point::*;
-use super::K;
+// This code assumes all over the place 3 dimensions
+pub const K: usize = 3;
+
+// 2016: l now means long (64bit), i int (32bit), s short (16bit)
+kd_point!(Point3dd, f64, 3);
+kd_point!(Point3df, f32, 3);
+kd_point!(Point3di, i32, 3);
+
+kd_point_is_nan!(Point3dd, f64, 3);
+kd_point_is_nan!(Point3df, f32, 3);
+
+impl From<&Vec<usize>> for Point3dd {
+    fn from(v: &Vec<usize>) -> Self {
+        Self([
+            f64::from(v[0] as i32),
+            f64::from(v[1] as i32),
+            f64::from(v[2] as i32),
+        ])
+    }
+}
+
+impl From<&Vec<usize>> for Point3di {
+    fn from(v: &Vec<usize>) -> Self {
+        Self([v[0] as i32, v[1] as i32, v[2] as i32])
+    }
+}
+
+impl From<&Point3dd> for Point3di {
+    fn from(p: &Point3dd) -> Self {
+        Point3di([
+            p[0].floor() as i32,
+            p[1].floor() as i32,
+            p[2].floor() as i32,
+        ])
+    }
+}
 
 struct GISArrayData(*const f32, Mmap, usize);
 
