@@ -26,7 +26,8 @@ impl GISArrayData {
         let size = file.metadata()?.len() as usize;
         let count = size / mem::size_of::<f32>();
 
-        debug_time!(
+        #[cfg(test)]
+        info_time!(
             "Loaded #{} {} GB {}\n\t> {} \n\t>",
             count,
             size as f32 / 2f32.powi(30),
